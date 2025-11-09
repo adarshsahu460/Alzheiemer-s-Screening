@@ -1,0 +1,246 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  ADMIN
+  CLINICIAN
+  CAREGIVER
+  PATIENT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum AssessmentType {
+  GDS  // Geriatric Depression Scale
+  NPI  // Neuropsychiatric Inventory
+  FAQ  // Functional Activities Questionnaire
+  CDR  // Clinical Dementia Rating
+}
+
+enum AssessmentStatus {
+  IN_PROGRESS
+  COMPLETED
+  REVIEWED
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      UserRole
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relationships
+  patientsManaged     Patient[]          @relation("CaregiverPatients")
+  assessmentsCreated  Assessment[]       @relation("AssessmentCreatedBy")
+  auditLogs           AuditLog[]
+  refreshTokens       RefreshToken[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Patient {
+  id              String    @id @default(cuid())
+  firstName       String
+  lastName        String
+  dateOfBirth     DateTime
+  gender          Gender
+  medicalRecordNo String?   @unique
+  
+  // Contact information
+  email           String?
+  phone           String?
+  address         String?
+  city            String?
+  state           String?
+  zipCode         String?
+  
+  // Family caregiver information (e.g., family member taking care of patient)
+  caregiverName         String?
+  caregiverRelationship String?
+  caregiverPhone        String?
+  caregiverEmail        String?
+  
+  // Clinical information
+  diagnosisDate   DateTime?
+  notes           String?   @db.Text
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relationships
+  caregiverId     String    // The clinician/user managing this patient
+  caregiver       User          @relation("CaregiverPatients", fields: [caregiverId], references: [id])
+  assessments     Assessment[]
+  
+  @@index([caregiverId])
+  @@index([medicalRecordNo])
+}
+
+model Assessment {
+  id              String            @id @default(cuid())
+  type            AssessmentType
+  status          AssessmentStatus  @default(IN_PROGRESS)
+  
+  // Scoring
+  answers         Json              // Stores all assessment answers
+  totalScore      Float?
+  interpretation  String?           @db.Text
+  
+  // Metadata
+  assessmentDate  DateTime          @default(now())
+  completedAt     DateTime?
+  reviewedAt      DateTime?
+  notes           String?           @db.Text
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  // Relationships
+  patientId       String
+  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  createdById     String
+  createdBy       User              @relation("AssessmentCreatedBy", fields: [createdById], references: [id])
+  
+  gdsDetails      GDSAssessment?
+  npiDetails      NPIAssessment?
+  faqDetails      FAQAssessment?
+  cdrDetails      CDRAssessment?
+  
+  auditLogs       AuditLog[]
+  
+  @@index([patientId])
+  @@index([type])
+  @@index([status])
+  @@index([assessmentDate])
+}
+
+
+model GDSAssessment {
+  id            String     @id @default(cuid())
+  assessmentId  String     @unique
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  // 15 yes/no questions (stored in Assessment.answers as JSON)
+  score         Int        // 0-15
+  severity      String     // Normal, Mild, Moderate, Severe
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model NPIAssessment {
+  id            String     @id @default(cuid())
+  assessmentId  String     @unique
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  // Domain scores (stored in Assessment.answers as JSON)
+  // Domains: Delusions, Hallucinations, Agitation, Depression, Anxiety,
+  // Elation, Apathy, Disinhibition, Irritability, Aberrant Motor, Sleep, Appetite
+  totalScore    Int        // Sum of all domain scores
+  domainScores  Json       // Individual domain breakdowns
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+
+model FAQAssessment {
+  id            String     @id @default(cuid())
+  assessmentId  String     @unique
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  // 10 items (stored in Assessment.answers as JSON)
+  totalScore    Int        // 0-30 (higher = worse functional impairment)
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+
+model CDRAssessment {
+  id              String     @id @default(cuid())
+  assessmentId    String     @unique
+  assessment      Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  // Box scores (0, 0.5, 1, 2, 3)
+  memory          Float
+  orientation     Float
+  judgmentProblem Float
+  communityAffairs Float
+  homeHobbies     Float
+  personalCare    Float
+  
+  // Global CDR score (calculated using CDR algorithm)
+  globalScore     Float      // 0, 0.5, 1, 2, 3
+  stage           String     // Normal, Questionable, Mild, Moderate, Severe
+  
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+
+model AuditLog {
+  id           String     @id @default(cuid())
+  action       String     // CREATE, UPDATE, DELETE, VIEW, etc.
+  entityType   String     // Assessment, Patient, User, etc.
+  entityId     String
+  changes      Json?      // What was changed
+  ipAddress    String?
+  userAgent    String?
+  
+  createdAt    DateTime   @default(now())
+  
+  // Relationships
+  userId       String
+  user         User       @relation(fields: [userId], references: [id])
+  
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([token])
+}
