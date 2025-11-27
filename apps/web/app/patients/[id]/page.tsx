@@ -132,7 +132,7 @@ function PatientDetailContent({ params }: { params: { id: string } }) {
       {isEditing ? (
         <>
           <PatientForm
-            initialData={patient}
+            initialData={patient as any}
             onSubmit={handleUpdate}
             isEdit={true}
           />
@@ -344,7 +344,7 @@ function PatientDetailContent({ params }: { params: { id: string } }) {
                     <p className="text-xs text-muted-foreground mb-3">
                       Clinical Dementia Rating
                     </p>
-                    <Link href={`/assessments/cdr/${params.id}/new`}>
+                    <Link href={`/assessments/cdr/new-assessment?patientId=${params.id}`}>
                       <Button size="sm" className="w-full">
                         New CDR
                       </Button>
@@ -367,8 +367,8 @@ function PatientDetailContent({ params }: { params: { id: string } }) {
                     Created By
                   </p>
                   <p>
-                    {patient.createdBy
-                      ? `${patient.createdBy.firstName} ${patient.createdBy.lastName}`
+                    {patient.caregiver
+                      ? `${patient.caregiver.firstName} ${patient.caregiver.lastName}`
                       : 'Unknown'}
                   </p>
                 </div>

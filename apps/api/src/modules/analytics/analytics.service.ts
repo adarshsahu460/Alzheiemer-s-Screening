@@ -233,35 +233,81 @@ export class AnalyticsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Extract scores for correlation calculations
-    const gdsScores = assessments
+    // Build dated series for each assessment type
+    type Point = { date: Date; score: number };
+    const gdsSeries: Point[] = assessments
       .filter((a) => a.gdsDetails)
-      .map((a) => a.gdsDetails!.score);
-    const npiScores = assessments
-      .filter((a) => a.npiDetails)
-      .map((a) => a.npiDetails!.totalScore);
-    const faqScores = assessments
-      .filter((a) => a.faqDetails)
-      .map((a) => a.faqDetails!.totalScore);
-    const cdrScores = assessments
-      .filter((a) => a.cdrDetails)
-      .map((a) => 
-        a.cdrDetails!.memory +
-        a.cdrDetails!.orientation +
-        a.cdrDetails!.judgmentProblem +
-        a.cdrDetails!.communityAffairs +
-        a.cdrDetails!.homeHobbies +
-        a.cdrDetails!.personalCare
-      );
+      .map((a) => ({ date: a.createdAt, score: a.gdsDetails!.score }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    // Calculate correlations (simplified - in production use proper statistical library)
+    const npiSeries: Point[] = assessments
+      .filter((a) => a.npiDetails)
+      .map((a) => ({ date: a.createdAt, score: a.npiDetails!.totalScore }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const faqSeries: Point[] = assessments
+      .filter((a) => a.faqDetails)
+      .map((a) => ({ date: a.createdAt, score: a.faqDetails!.totalScore }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    // Use Sum of Boxes (SOB) for CDR correlation
+    const cdrSeries: Point[] = assessments
+      .filter((a) => a.cdrDetails)
+      .map((a) => ({
+        date: a.createdAt,
+        score:
+          a.cdrDetails!.memory +
+          a.cdrDetails!.orientation +
+          a.cdrDetails!.judgmentProblem +
+          a.cdrDetails!.communityAffairs +
+          a.cdrDetails!.homeHobbies +
+          a.cdrDetails!.personalCare,
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    // Pair by nearest dates within a window (e.g., 14 days)
+    const pairNearest = (a: Point[], b: Point[], windowDays = 14): { a: number[]; b: number[] } => {
+      const used = new Set<number>();
+      const ax: number[] = [];
+      const bx: number[] = [];
+      const msWindow = windowDays * 24 * 60 * 60 * 1000;
+
+      for (let i = 0; i < a.length; i++) {
+        const t = a[i].date.getTime();
+        let bestJ = -1;
+        let bestDiff = Number.POSITIVE_INFINITY;
+        for (let j = 0; j < b.length; j++) {
+          if (used.has(j)) continue;
+          const diff = Math.abs(b[j].date.getTime() - t);
+          if (diff <= msWindow && diff < bestDiff) {
+            bestDiff = diff;
+            bestJ = j;
+          }
+        }
+        if (bestJ !== -1) {
+          ax.push(a[i].score);
+          bx.push(b[bestJ].score);
+          used.add(bestJ);
+        }
+      }
+      return { a: ax, b: bx };
+    };
+
+    const gdsNpiPairs = pairNearest(gdsSeries, npiSeries);
+    const gdsFaqPairs = pairNearest(gdsSeries, faqSeries);
+    const gdsCdrPairs = pairNearest(gdsSeries, cdrSeries);
+    const npiFaqPairs = pairNearest(npiSeries, faqSeries);
+    const npiCdrPairs = pairNearest(npiSeries, cdrSeries);
+    const faqCdrPairs = pairNearest(faqSeries, cdrSeries);
+
+    // Calculate correlations on aligned pairs
     const correlations = {
-      gdsNpi: this.calculateCorrelation(gdsScores, npiScores),
-      gdsFaq: this.calculateCorrelation(gdsScores, faqScores),
-      gdsCdr: this.calculateCorrelation(gdsScores, cdrScores),
-      npiFaq: this.calculateCorrelation(npiScores, faqScores),
-      npiCdr: this.calculateCorrelation(npiScores, cdrScores),
-      faqCdr: this.calculateCorrelation(faqScores, cdrScores),
+      gdsNpi: this.calculateCorrelation(gdsNpiPairs.a, gdsNpiPairs.b),
+      gdsFaq: this.calculateCorrelation(gdsFaqPairs.a, gdsFaqPairs.b),
+      gdsCdr: this.calculateCorrelation(gdsCdrPairs.a, gdsCdrPairs.b),
+      npiFaq: this.calculateCorrelation(npiFaqPairs.a, npiFaqPairs.b),
+      npiCdr: this.calculateCorrelation(npiCdrPairs.a, npiCdrPairs.b),
+      faqCdr: this.calculateCorrelation(faqCdrPairs.a, faqCdrPairs.b),
     };
 
     // Generate insights

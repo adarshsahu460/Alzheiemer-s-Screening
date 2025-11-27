@@ -1,35 +1,55 @@
-import { PrismaClient } from '@repo/db';
-import { createCDRAssessmentSchema, type CreateCDRAssessmentInput } from '@repo/types';
-import type { CDRAssessment, Assessment, User, Patient } from '@repo/db';
+import { PrismaClient } from '@alzheimer/db';
+import { calculateCDRScore, type CDRBoxScores, createCDRAssessmentSchema } from '@alzheimer/types';
 
 const prisma = new PrismaClient();
 
-// CDR Domain names
+// CDR Domain names (for stats/breakdowns)
 const CDR_DOMAINS = [
   'Memory',
   'Orientation',
   'Judgment & Problem Solving',
   'Community Affairs',
   'Home & Hobbies',
-  'Personal Care'
+  'Personal Care',
 ] as const;
 
 // CDR Score values and their meanings
-const CDR_SCORES = {
+const CDR_SCORES: Record<number, string> = {
   0: 'None',
   0.5: 'Questionable',
   1: 'Mild',
   2: 'Moderate',
-  3: 'Severe'
-} as const;
-
-type CDRScore = keyof typeof CDR_SCORES;
+  3: 'Severe',
+};
 
 // Extended types for service responses
-type CDRAssessmentWithRelations = Assessment & {
-  cdrAssessment: CDRAssessment;
-  patient: Pick<Patient, 'id' | 'firstName' | 'lastName' | 'medicalRecordNumber'>;
-  assessedBy: Pick<User, 'id' | 'firstName' | 'lastName'>;
+type CDRAssessmentWithRelations = {
+  id: string;
+  patientId: string;
+  type: 'CDR';
+  createdAt: Date;
+  notes: string | null;
+  cdrDetails: {
+    memory: number;
+    orientation: number;
+    judgmentProblem: number;
+    communityAffairs: number;
+    homeHobbies: number;
+    personalCare: number;
+    globalScore: number;
+    stage: string;
+  };
+  patient: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    medicalRecordNo: string | null;
+  };
+  createdBy: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  };
 };
 
 interface DomainScore {
@@ -101,48 +121,20 @@ interface PaginatedResult {
  * 
  * This implements the M-Rule (Memory Rule) algorithm
  */
-function calculateGlobalCDR(domainScores: number[]): number {
+function calculateGlobalCDRFromArray(domainScores: number[]): number {
   if (domainScores.length !== 6) {
     throw new Error('CDR requires exactly 6 domain scores');
   }
-
-  const [memory, orientation, judgement, community, homeHobbies, personalCare] = domainScores;
-  
-  // All domains 0 = global CDR 0
-  if (domainScores.every(score => score === 0)) {
-    return 0;
-  }
-
-  // Special case: Memory = 0.5
-  if (memory === 0.5) {
-    const otherDomainsAboveZero = domainScores.slice(1).filter(s => s >= 0.5).length;
-    return otherDomainsAboveZero >= 3 ? 0.5 : 0;
-  }
-
-  // Memory ≥ 1: Count how many domains differ from memory
-  const secondaryDomains = domainScores.slice(1, 5); // Orientation through Home & Hobbies
-  const higherCount = secondaryDomains.filter(s => s > memory).length;
-  const lowerCount = secondaryDomains.filter(s => s < memory).length;
-
-  // If at least 3 secondary domains are higher than memory
-  if (higherCount >= 3) {
-    // Move global CDR one level above memory
-    if (memory === 1) return 2;
-    if (memory === 2) return 3;
-    return memory; // Can't go higher than 3
-  }
-
-  // If at least 3 secondary domains are lower than memory
-  if (lowerCount >= 3) {
-    // Move global CDR one level below memory
-    if (memory === 3) return 2;
-    if (memory === 2) return 1;
-    if (memory === 1) return 0.5;
-    return memory;
-  }
-
-  // Default: global CDR equals memory score
-  return memory;
+  const boxScores: CDRBoxScores = {
+    memory: domainScores[0] as any,
+    orientation: domainScores[1] as any,
+    judgmentProblem: domainScores[2] as any,
+    communityAffairs: domainScores[3] as any,
+    homeHobbies: domainScores[4] as any,
+    personalCare: domainScores[5] as any,
+  };
+  const result = calculateCDRScore(boxScores);
+  return result.globalScore as number;
 }
 
 /**
@@ -161,7 +153,7 @@ function calculateSumOfBoxes(domainScores: number[]): number {
  * Get CDR stage label
  */
 function getCDRStageLabel(globalCDR: number): string {
-  return CDR_SCORES[globalCDR as CDRScore] || 'Unknown';
+  return CDR_SCORES[globalCDR] || 'Unknown';
 }
 
 /**
@@ -184,76 +176,66 @@ export class CDRService {
   /**
    * Create a new CDR assessment
    */
-  async createAssessment(
-    data: CreateCDRAssessmentInput
-  ): Promise<CDRAssessmentWithRelations> {
-    // Validate input
-    const validatedData = createCDRAssessmentSchema.parse(data);
+  async createAssessment(data: { patientId: string; domainScores: number[]; notes?: string; userId: string }): Promise<CDRAssessmentWithRelations> {
+    const validated = createCDRAssessmentSchema.parse({
+      patientId: data.patientId,
+      domainScores: data.domainScores,
+      notes: data.notes,
+    });
 
-    // Validate domain scores
-    validateDomainScores(validatedData.domainScores);
+    validateDomainScores(validated.domainScores);
 
-    // Calculate global CDR and sum of boxes
-    const globalCDR = calculateGlobalCDR(validatedData.domainScores);
-    const sumOfBoxes = calculateSumOfBoxes(validatedData.domainScores);
+    const boxScores: CDRBoxScores = {
+      memory: validated.domainScores[0] as any,
+      orientation: validated.domainScores[1] as any,
+      judgmentProblem: validated.domainScores[2] as any,
+      communityAffairs: validated.domainScores[3] as any,
+      homeHobbies: validated.domainScores[4] as any,
+      personalCare: validated.domainScores[5] as any,
+    };
 
-    // Create assessment with CDR data in a transaction
+    const calc = calculateCDRScore(boxScores);
+
     const assessment = await prisma.$transaction(async (tx) => {
-      // Create the base assessment
       const newAssessment = await tx.assessment.create({
         data: {
-          patientId: validatedData.patientId,
-          assessedById: validatedData.userId,
+          patientId: validated.patientId,
+          createdById: data.userId,
           type: 'CDR',
-          cdrAssessment: {
+          answers: { boxScores },
+          notes: validated.notes,
+          cdrDetails: {
             create: {
-              memory: validatedData.domainScores[0],
-              orientation: validatedData.domainScores[1],
-              judgmentProblemSolving: validatedData.domainScores[2],
-              communityAffairs: validatedData.domainScores[3],
-              homeHobbies: validatedData.domainScores[4],
-              personalCare: validatedData.domainScores[5],
-              globalCDR,
-              sumOfBoxes,
-              notes: validatedData.notes,
+              memory: boxScores.memory,
+              orientation: boxScores.orientation,
+              judgmentProblem: boxScores.judgmentProblem,
+              communityAffairs: boxScores.communityAffairs,
+              homeHobbies: boxScores.homeHobbies,
+              personalCare: boxScores.personalCare,
+              globalScore: calc.globalScore as number,
+              stage: calc.stage,
             },
           },
         },
         include: {
-          cdrAssessment: true,
+          cdrDetails: true,
           patient: {
             select: {
               id: true,
               firstName: true,
               lastName: true,
-              medicalRecordNumber: true,
+              medicalRecordNo: true,
             },
           },
-          assessedBy: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-            },
+          createdBy: {
+            select: { id: true, firstName: true, lastName: true },
           },
         },
       });
-
-      // Log the assessment creation
-      await tx.auditLog.create({
-        data: {
-          userId: validatedData.userId,
-          action: 'CREATE_ASSESSMENT',
-          entityType: 'Assessment',
-          entityId: newAssessment.id,
-          details: `Created CDR assessment for patient ${validatedData.patientId}`,
-        },
-      });
-
       return newAssessment;
     });
 
-    return assessment as CDRAssessmentWithRelations;
+    return assessment as unknown as CDRAssessmentWithRelations;
   }
 
   /**
@@ -263,30 +245,17 @@ export class CDRService {
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
       include: {
-        cdrAssessment: true,
-        patient: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            medicalRecordNumber: true,
-          },
-        },
-        assessedBy: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
+        cdrDetails: true,
+        patient: { select: { id: true, firstName: true, lastName: true, medicalRecordNo: true } },
+        createdBy: { select: { id: true, firstName: true, lastName: true } },
       },
     });
 
-    if (!assessment || !assessment.cdrAssessment) {
+    if (!assessment || !assessment.cdrDetails) {
       throw new Error('CDR assessment not found');
     }
 
-    return assessment as CDRAssessmentWithRelations;
+    return assessment as unknown as CDRAssessmentWithRelations;
   }
 
   /**
@@ -301,40 +270,17 @@ export class CDRService {
 
     const [assessments, total] = await Promise.all([
       prisma.assessment.findMany({
-        where: {
-          patientId,
-          type: 'CDR',
-        },
+        where: { patientId, type: 'CDR' },
         include: {
-          cdrAssessment: true,
-          patient: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              medicalRecordNumber: true,
-            },
-          },
-          assessedBy: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
+          cdrDetails: true,
+          patient: { select: { id: true, firstName: true, lastName: true, medicalRecordNo: true } },
+          createdBy: { select: { id: true, firstName: true, lastName: true } },
         },
-        orderBy: {
-          createdAt: 'desc',
-        },
+        orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
       }),
-      prisma.assessment.count({
-        where: {
-          patientId,
-          type: 'CDR',
-        },
-      }),
+      prisma.assessment.count({ where: { patientId, type: 'CDR' } }),
     ]);
 
     return {
@@ -353,16 +299,9 @@ export class CDRService {
    */
   async getPatientStats(patientId: string): Promise<CDRStats> {
     const assessments = await prisma.assessment.findMany({
-      where: {
-        patientId,
-        type: 'CDR',
-      },
-      include: {
-        cdrAssessment: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      where: { patientId, type: 'CDR' },
+      include: { cdrDetails: true },
+      orderBy: { createdAt: 'desc' },
     });
 
     if (assessments.length === 0) {
@@ -379,30 +318,30 @@ export class CDRService {
     }
 
     // Calculate averages
-    const totalGlobalCDR = assessments.reduce(
-      (sum, a) => sum + (a.cdrAssessment?.globalCDR || 0),
-      0
-    );
-    const totalSumOfBoxes = assessments.reduce(
-      (sum, a) => sum + (a.cdrAssessment?.sumOfBoxes || 0),
-      0
-    );
+    const totalGlobalCDR = assessments.reduce((sum, a) => sum + (a.cdrDetails?.globalScore || 0), 0);
+    const totalSumOfBoxes = assessments.reduce((sum, a) => {
+      const d = a.cdrDetails;
+      if (!d) return sum;
+      return sum + d.memory + d.orientation + d.judgmentProblem + d.communityAffairs + d.homeHobbies + d.personalCare;
+    }, 0);
 
     const averageGlobalCDR = totalGlobalCDR / assessments.length;
     const averageSumOfBoxes = totalSumOfBoxes / assessments.length;
 
     // Get latest scores
-    const latest = assessments[0].cdrAssessment;
-    const latestGlobalCDR = latest?.globalCDR || null;
-    const latestSumOfBoxes = latest?.sumOfBoxes || null;
-    const latestStage = latestGlobalCDR !== null ? getCDRStageLabel(latestGlobalCDR) : null;
+    const latest = assessments[0].cdrDetails;
+    const latestGlobalCDR = latest?.globalScore ?? null;
+    const latestSumOfBoxes = latest
+      ? latest.memory + latest.orientation + latest.judgmentProblem + latest.communityAffairs + latest.homeHobbies + latest.personalCare
+      : null;
+    const latestStage = latest?.stage ?? (latestGlobalCDR !== null ? getCDRStageLabel(latestGlobalCDR) : null);
 
     // Build score history
-    const scoreHistory = assessments.map((a) => ({
-      date: a.createdAt.toISOString(),
-      globalCDR: a.cdrAssessment?.globalCDR || 0,
-      sumOfBoxes: a.cdrAssessment?.sumOfBoxes || 0,
-    }));
+    const scoreHistory = assessments.map((a) => {
+      const d = a.cdrDetails;
+      const sob = d ? d.memory + d.orientation + d.judgmentProblem + d.communityAffairs + d.homeHobbies + d.personalCare : 0;
+      return { date: a.createdAt.toISOString(), globalCDR: d?.globalScore || 0, sumOfBoxes: sob };
+    });
 
     // Calculate domain statistics
     const domainStats = CDR_DOMAINS.map((domain, index) => {
@@ -417,7 +356,7 @@ export class CDRService {
         switch (index) {
           case 0: score = cdr.memory; break;
           case 1: score = cdr.orientation; break;
-          case 2: score = cdr.judgmentProblemSolving; break;
+          case 2: score = cdr.judgmentProblem; break;
           case 3: score = cdr.communityAffairs; break;
           case 4: score = cdr.homeHobbies; break;
           case 5: score = cdr.personalCare; break;
@@ -451,12 +390,12 @@ export class CDRService {
    */
   async getDomainBreakdown(assessmentId: string): Promise<DomainScore[]> {
     const assessment = await this.getAssessmentById(assessmentId);
-    const cdr = assessment.cdrAssessment;
+    const cdr = assessment.cdrDetails;
 
     const scores = [
       cdr.memory,
       cdr.orientation,
-      cdr.judgmentProblemSolving,
+      cdr.judgmentProblem,
       cdr.communityAffairs,
       cdr.homeHobbies,
       cdr.personalCare,
@@ -486,13 +425,13 @@ export class CDRService {
       throw new Error('Cannot compare assessments from different patients');
     }
 
-    const cdr1 = assessment1.cdrAssessment;
-    const cdr2 = assessment2.cdrAssessment;
+    const cdr1 = assessment1.cdrDetails;
+    const cdr2 = assessment2.cdrDetails;
 
     const scores1 = [
       cdr1.memory,
       cdr1.orientation,
-      cdr1.judgmentProblemSolving,
+      cdr1.judgmentProblem,
       cdr1.communityAffairs,
       cdr1.homeHobbies,
       cdr1.personalCare,
@@ -501,7 +440,7 @@ export class CDRService {
     const scores2 = [
       cdr2.memory,
       cdr2.orientation,
-      cdr2.judgmentProblemSolving,
+      cdr2.judgmentProblem,
       cdr2.communityAffairs,
       cdr2.homeHobbies,
       cdr2.personalCare,
@@ -518,8 +457,10 @@ export class CDRService {
       assessment1,
       assessment2,
       comparison: {
-        globalCDRDifference: cdr2.globalCDR - cdr1.globalCDR,
-        sumOfBoxesDifference: cdr2.sumOfBoxes - cdr1.sumOfBoxes,
+        globalCDRDifference: cdr2.globalScore - cdr1.globalScore,
+        sumOfBoxesDifference:
+          (cdr2.memory + cdr2.orientation + cdr2.judgmentProblem + cdr2.communityAffairs + cdr2.homeHobbies + cdr2.personalCare) -
+          (cdr1.memory + cdr1.orientation + cdr1.judgmentProblem + cdr1.communityAffairs + cdr1.homeHobbies + cdr1.personalCare),
         domainChanges,
       },
     };

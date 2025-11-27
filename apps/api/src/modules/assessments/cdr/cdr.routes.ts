@@ -1,7 +1,9 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { cdrService } from './cdr.service';
-import { createCDRAssessmentSchema } from '@repo/types';
+import { createCDRAssessmentSchema } from '@alzheimer/types';
+import { authenticate } from '../../../middleware/auth.middleware';
+import { requireRole } from '../../../middleware/rbac';
 
 /**
  * CDR Assessment Routes
@@ -18,16 +20,16 @@ import { createCDRAssessmentSchema } from '@repo/types';
 
 // Request schemas
 const idParamSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().cuid(),
 });
 
 const patientIdParamSchema = z.object({
-  patientId: z.string().uuid(),
+  patientId: z.string().cuid(),
 });
 
 const compareParamsSchema = z.object({
-  id1: z.string().uuid(),
-  id2: z.string().uuid(),
+  id1: z.string().cuid(),
+  id2: z.string().cuid(),
 });
 
 const paginationQuerySchema = z.object({
@@ -36,11 +38,14 @@ const paginationQuerySchema = z.object({
 });
 
 export async function cdrRoutes(fastify: FastifyInstance) {
+  // Apply authentication to all CDR routes
+  fastify.addHook('onRequest', authenticate);
   /**
    * Create a new CDR assessment
    */
   fastify.post(
     '/',
+    { preHandler: requireRole(['CLINICIAN', 'ADMIN']) },
     async (
       request: FastifyRequest<{
         Body: {
@@ -239,6 +244,7 @@ export async function cdrRoutes(fastify: FastifyInstance) {
    */
   fastify.delete(
     '/:id',
+    { preHandler: requireRole(['CLINICIAN', 'ADMIN']) },
     async (
       request: FastifyRequest<{
         Params: { id: string };

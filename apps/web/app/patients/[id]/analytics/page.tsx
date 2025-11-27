@@ -8,6 +8,7 @@ import { Badge } from '@repo/ui/components/badge';
 import { getPatient } from '@/lib/patient-api';
 import { ArrowLeft, AlertTriangle, TrendingUp, TrendingDown, Minus, Download, Activity } from 'lucide-react';
 import axios from 'axios';
+import { apiClient } from '@/lib/api-client';
 import { useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -88,20 +89,16 @@ export default function PatientAnalyticsPage() {
   const handleDownloadPDF = async () => {
     try {
       setIsDownloading(true);
-      const response = await axios.get(
-        `${API_URL}/api/reports/patient/${patientId}/pdf`,
-        {
-          withCredentials: true,
-          responseType: 'blob',
-        }
-      );
+      const response = await apiClient.get(`/api/reports/patient/${patientId}/pdf`, {
+        responseType: 'blob',
+      });
 
       // Create download link
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `patient-report-${patient?.medicalRecordNumber || patientId}-${Date.now()}.pdf`;
+      link.download = `patient-report-${(patient as any)?.medicalRecordNo || patientId}-${Date.now()}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -121,7 +118,7 @@ export default function PatientAnalyticsPage() {
         <div>
           <h1 className="text-3xl font-bold mb-2">Patient Analytics & Comprehensive Report</h1>
           <p className="text-gray-600">
-            {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNumber})
+            {patient.firstName} {patient.lastName} (MRN: {(patient as any)?.medicalRecordNo || 'N/A'})
           </p>
         </div>
         <div className="flex gap-2">

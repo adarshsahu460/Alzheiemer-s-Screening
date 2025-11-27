@@ -1,10 +1,10 @@
-import { PrismaClient, GDSAssessment, Assessment } from '@repo/db';
+import { PrismaClient, GDSAssessment, Assessment } from '@alzheimer/db';
 import {
   calculateGDSScore,
   validateGDSAnswers,
   GDS_QUESTIONS,
   type GDSAnswers,
-} from '@repo/types';
+} from '@alzheimer/types';
 
 const prisma = new PrismaClient();
 
@@ -205,15 +205,20 @@ export class GDSService {
    * Get question breakdown for an assessment
    */
   getQuestionBreakdown(answers: GDSAnswers) {
-    return GDS_QUESTIONS.map((question, index) => ({
-      number: index + 1,
-      question: question.question,
-      answer: answers[index] ? 'Yes' : 'No',
-      reverseScored: question.reverseScored,
-      contributesToScore: question.reverseScored
-        ? !answers[index]
-        : answers[index],
-    }));
+    return GDS_QUESTIONS.map((question, index) => {
+      const answer = answers.answers.find((a) => a.questionId === question.id);
+      const val = answer ? answer.answer : false;
+
+      return {
+        number: index + 1,
+        question: question.text,
+        answer: val ? 'Yes' : 'No',
+        reverseScored: question.reverseScore,
+        contributesToScore: question.reverseScore
+          ? !val
+          : val,
+      };
+    });
   }
 
   /**

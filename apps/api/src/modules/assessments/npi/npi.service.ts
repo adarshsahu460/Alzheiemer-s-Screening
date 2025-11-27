@@ -1,11 +1,7 @@
-import { PrismaClient } from '@repo/db';
-import { 
-  NPI_DOMAINS, 
-  calculateNPIScore, 
-  validateNPIScores,
-  type NPIDomainScore 
-} from '@repo/types';
-import type { Prisma } from '@repo/db';
+import { PrismaClient, NPIAssessment, Assessment } from '@alzheimer/db';
+import { calculateNPIScore, validateNPIScores, NPI_DOMAINS } from '@alzheimer/types';
+import type { NPIDomainScore } from '@alzheimer/types';
+import type { Prisma } from '@alzheimer/db';
 
 const prisma = new PrismaClient();
 
@@ -85,7 +81,7 @@ export class NPIService {
     // Validate domain scores
     const validation = validateNPIScores(data.domainScores);
     if (!validation.isValid) {
-      throw new Error(`Invalid NPI domain scores: ${validation.errors.join(', ')}`);
+      throw new Error(`Invalid NPI domain scores: ${validation.errors.join(', ')} `);
     }
 
     // Calculate total score and distress
@@ -93,7 +89,7 @@ export class NPIService {
 
     // Create a map of domain scores by domainId for easy lookup
     const domainMap = new Map(domainScores.map(d => [d.domainId, d]));
-    
+
     // Helper to get domain data or null
     const getDomain = (id: number) => domainMap.get(id);
 
@@ -312,7 +308,7 @@ export class NPIService {
       assessments.forEach((assessment: any) => {
         const domains = (assessment.npiDetails?.domainScores as any[]) || [];
         const domainData = domains.find((d: any) => d.domainId === domainId);
-        
+
         if (domainData) {
           presenceCount++;
           totalDomainScore += domainData.score || 0;
@@ -355,7 +351,7 @@ export class NPIService {
 
     return NPI_DOMAINS.map(domain => {
       const domainData = domains.find((d: any) => d.domainId === domain.id);
-      
+
       if (!domainData) {
         return {
           domain: domain.name,
@@ -405,17 +401,17 @@ export class NPIService {
     const scoreDifference = npi2.totalScore - npi1.totalScore;
     const distressDifference = totalDistress2 - totalDistress1;
     const improvement = scoreDifference < 0; // Lower score is improvement
-    const percentChange = npi1.totalScore > 0 
-      ? (scoreDifference / npi1.totalScore) * 100 
+    const percentChange = npi1.totalScore > 0
+      ? (scoreDifference / npi1.totalScore) * 100
       : 0;
 
     // Calculate domain-level changes
     const domainChanges = NPI_DOMAINS.map(domain => {
       const domainId = domain.id;
-      
+
       const domain1Data = domains1.find((d: any) => d.domainId === domainId);
       const domain2Data = domains2.find((d: any) => d.domainId === domainId);
-      
+
       const score1 = domain1Data?.score || 0;
       const score2 = domain2Data?.score || 0;
       const distress1 = domain1Data?.distress || 0;
@@ -485,12 +481,12 @@ export class NPIService {
    * Helper: Calculate domain score from NPI assessment
    */
   private calculateDomainScore(npi: any, domainKey: string): number {
-    const isPresent = npi[`${domainKey}Present`] as boolean;
-    const frequency = npi[`${domainKey}Frequency`] as number | null;
-    const severity = npi[`${domainKey}Severity`] as number | null;
+    const isPresent = npi[`${domainKey} Present`] as boolean;
+    const frequency = npi[`${domainKey} Frequency`] as number | null;
+    const severity = npi[`${domainKey} Severity`] as number | null;
 
-    return isPresent && frequency !== null && severity !== null 
-      ? frequency * severity 
+    return isPresent && frequency !== null && severity !== null
+      ? frequency * severity
       : 0;
   }
 }

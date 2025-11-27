@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.3",
-    "@repo/db": "*",
-    "@repo/types": "*",
-    "@repo/ui": "*",
+    "@alzheimer/db": "*",
+    "@alzheimer/types": "*",
+    "@alzheimer/ui": "*",
     "@tanstack/react-query": "^5.17.0",
     "axios": "^1.6.5",
     "lucide-react": "^0.553.0",

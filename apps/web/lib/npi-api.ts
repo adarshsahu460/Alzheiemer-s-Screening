@@ -36,7 +36,7 @@ export interface NPIAssessment {
     firstName: string;
     lastName: string;
     dateOfBirth: string;
-    medicalRecordNo: string;
+    medicalRecordNo: string | null;
   };
   createdBy: {
     id: string;
@@ -160,7 +160,7 @@ export async function getPatientNPIStats(patientId: string): Promise<NPIStats> {
 
 export async function compareNPIAssessments(id1: string, id2: string): Promise<ComparisonResult> {
   const response = await apiClient.get<{ data: ComparisonResult }>(
-    `/assessments/npi/compare/${id1}/${id2}`
+    `/api/assessments/npi/compare/${id1}/${id2}`
   );
   return response.data.data;
 }

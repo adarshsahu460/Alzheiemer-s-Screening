@@ -1,5 +1,5 @@
 {
-  "name": "@repo/db",
+  "name": "@alzheimer/db",
   "version": "1.0.0",
   "private": true,
   "main": "./index.ts",
@@ -12,7 +12,8 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.8.0"
+    "@prisma/client": "^5.8.0",
+    "bcrypt": "^6.0.0"
   },
   "devDependencies": {
     "prisma": "^5.8.0",

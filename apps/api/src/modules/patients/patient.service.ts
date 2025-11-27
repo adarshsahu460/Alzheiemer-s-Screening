@@ -1,5 +1,5 @@
-import { PrismaClient, Patient, Prisma } from '@repo/db';
-import type { CreatePatientInput, UpdatePatientInput, PatientQuery } from '@repo/types';
+import { PrismaClient, Patient, Prisma } from '@alzheimer/db';
+import { CreatePatientInput, UpdatePatientInput, PatientQuery } from '@alzheimer/types';
 
 const prisma = new PrismaClient();
 
@@ -13,7 +13,7 @@ export class PatientService {
   ): Promise<Patient> {
     // Map medicalRecordNumber to medicalRecordNo for schema compatibility
     const { medicalRecordNumber, ...restData } = data as any;
-    
+
     const patient = await prisma.patient.create({
       data: {
         ...restData,
@@ -142,12 +142,12 @@ export class PatientService {
     const { medicalRecordNumber, ...restData } = data as any;
 
     const updateData: any = { ...restData };
-    
+
     // Add mapped field if it exists
     if (medicalRecordNumber !== undefined) {
       updateData.medicalRecordNo = medicalRecordNumber;
     }
-    
+
     if (data.dateOfBirth) {
       updateData.dateOfBirth = new Date(data.dateOfBirth);
     }

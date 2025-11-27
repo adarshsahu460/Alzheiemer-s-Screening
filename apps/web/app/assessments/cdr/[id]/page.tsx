@@ -40,11 +40,18 @@ export default function CDRResultsPage() {
   const cdr = assessment.cdrDetails;
   const patient = assessment.patient;
   const createdBy = assessment.createdBy;
+  const sumOfBoxes =
+    cdr.memory +
+    cdr.orientation +
+    cdr.judgmentProblem +
+    cdr.communityAffairs +
+    cdr.homeHobbies +
+    cdr.personalCare;
 
   const domainScores = [
     { name: 'Memory', score: cdr.memory },
     { name: 'Orientation', score: cdr.orientation },
-    { name: 'Judgment & Problem Solving', score: cdr.judgmentProblemSolving },
+    { name: 'Judgment & Problem Solving', score: cdr.judgmentProblem },
     { name: 'Community Affairs', score: cdr.communityAffairs },
     { name: 'Home & Hobbies', score: cdr.homeHobbies },
     { name: 'Personal Care', score: cdr.personalCare },
@@ -110,23 +117,13 @@ export default function CDRResultsPage() {
         <CardContent>
           <div className="flex items-center justify-between">
             <div>
-              <div className="mb-3">
-                {getGlobalCDRBadge(cdr.globalCDR)}
-              </div>
-              <p className="text-sm text-gray-600">
-                Calculated using the standard M-Rule algorithm
-              </p>
+              <div className="mb-3">{getGlobalCDRBadge(cdr.globalScore)}</div>
+              <p className="text-sm text-gray-600">Calculated using the standard M-Rule algorithm</p>
             </div>
             <div className="text-right">
-              <div className="text-sm font-medium text-gray-600 mb-1">
-                Sum of Boxes
-              </div>
-              <div className="text-4xl font-bold text-blue-600">
-                {cdr.sumOfBoxes}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                out of 18
-              </div>
+              <div className="text-sm font-medium text-gray-600 mb-1">Sum of Boxes</div>
+              <div className="text-4xl font-bold text-blue-600">{sumOfBoxes}</div>
+              <div className="text-xs text-gray-500 mt-1">out of 18</div>
             </div>
           </div>
         </CardContent>
@@ -207,13 +204,13 @@ export default function CDRResultsPage() {
       </Card>
 
       {/* Clinical Notes */}
-      {cdr.notes && (
+      {assessment.notes && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Clinical Notes</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="whitespace-pre-wrap">{cdr.notes}</p>
+            <p className="whitespace-pre-wrap">{assessment.notes}</p>
           </CardContent>
         </Card>
       )}

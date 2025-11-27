@@ -30,7 +30,7 @@ export function PatientForm({
     email: initialData?.email || '',
     phone: initialData?.phone || '',
     address: initialData?.address || '',
-    medicalRecordNumber: initialData?.medicalRecordNumber || '',
+    medicalRecordNumber: (initialData as any)?.medicalRecordNo || initialData?.medicalRecordNumber || '',
     caregiverName: initialData?.caregiverName || '',
     caregiverRelationship: initialData?.caregiverRelationship || '',
     caregiverPhone: initialData?.caregiverPhone || '',

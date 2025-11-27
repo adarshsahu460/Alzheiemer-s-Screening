@@ -129,7 +129,7 @@ export default function NPIHistoryPage() {
         <div>
           <h1 className="text-3xl font-bold mb-2">NPI Assessment History</h1>
           <p className="text-gray-600">
-            {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNumber})
+            {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNo || 'N/A'})
           </p>
         </div>
         <div className="flex gap-2">
@@ -330,7 +330,7 @@ export default function NPIHistoryPage() {
               <p className="text-gray-600 mb-6">
                 Get started by creating the first NPI assessment for this patient.
               </p>
-              <Button onClick={() => router.push(`/assessments/npi/${patientId}/new`)}>
+              <Button onClick={() => router.push(`/assessments/npi/new-assessment?patientId=${patientId}`)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create First Assessment
               </Button>

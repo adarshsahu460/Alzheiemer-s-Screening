@@ -1,13 +1,27 @@
 import PDFDocument from 'pdfkit';
-import type { Patient, GDSAssessment, NPIAssessment, FAQAssessment, CDRAssessment } from '@repo/db';
 import { prisma } from '@repo/db';
 
 interface ComprehensiveReportData {
-  patient: Patient;
-  gdsAssessments: GDSAssessment[];
-  npiAssessments: NPIAssessment[];
-  faqAssessments: FAQAssessment[];
-  cdrAssessments: CDRAssessment[];
+  patient: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    dateOfBirth: Date;
+    gender: string;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    medicalRecordNo?: string | null;
+    caregiverName?: string | null;
+    caregiverRelationship?: string | null;
+    caregiverPhone?: string | null;
+    caregiverEmail?: string | null;
+    notes?: string | null;
+  };
+  gdsAssessments: Array<{ date: Date; score: number; notes?: string | null }>;
+  npiAssessments: Array<{ date: Date; totalScore: number; totalDistress: number; notes?: string | null }>;
+  faqAssessments: Array<{ date: Date; totalScore: number; notes?: string | null }>;
+  cdrAssessments: Array<{ date: Date; globalScore: number; sumOfBoxes: number; notes?: string | null }>;
   analytics: {
     latestScores: {
       gds?: number;
@@ -86,36 +100,65 @@ export class PDFService {
     if (!patient) {
       throw new Error('Patient not found');
     }
-
-    const [gdsAssessments, npiAssessments, faqAssessments, cdrAssessments] = await Promise.all([
-      prisma.gDSAssessment.findMany({
-        where: { patientId },
-        orderBy: { assessmentDate: 'desc' },
+    // Fetch latest assessments by type with details
+    const [gds, npi, faq, cdr] = await Promise.all([
+      prisma.assessment.findMany({
+        where: { patientId, type: 'GDS' },
+        include: { gdsDetails: true },
+        orderBy: { createdAt: 'desc' },
         take: 10,
       }),
-      prisma.nPIAssessment.findMany({
-        where: { patientId },
-        orderBy: { assessmentDate: 'desc' },
+      prisma.assessment.findMany({
+        where: { patientId, type: 'NPI' },
+        include: { npiDetails: true },
+        orderBy: { createdAt: 'desc' },
         take: 10,
       }),
-      prisma.fAQAssessment.findMany({
-        where: { patientId },
-        orderBy: { assessmentDate: 'desc' },
+      prisma.assessment.findMany({
+        where: { patientId, type: 'FAQ' },
+        include: { faqDetails: true },
+        orderBy: { createdAt: 'desc' },
         take: 10,
       }),
-      prisma.cDRAssessment.findMany({
-        where: { patientId },
-        orderBy: { assessmentDate: 'desc' },
+      prisma.assessment.findMany({
+        where: { patientId, type: 'CDR' },
+        include: { cdrDetails: true },
+        orderBy: { createdAt: 'desc' },
         take: 10,
       }),
     ]);
 
-    // Calculate analytics
+    // Map to report-friendly rows
+    const gdsAssessments = gds
+      .filter(a => a.gdsDetails)
+      .map(a => ({ date: a.createdAt, score: a.gdsDetails!.score, notes: a.notes }));
+
+    const npiAssessments = npi
+      .filter(a => a.npiDetails)
+      .map(a => {
+        const domains = (a.npiDetails!.domainScores as any[]) || [];
+        const totalDistress = domains.reduce((sum, d) => sum + (d.distress || 0), 0);
+        return { date: a.createdAt, totalScore: a.npiDetails!.totalScore, totalDistress, notes: a.notes };
+      });
+
+    const faqAssessments = faq
+      .filter(a => a.faqDetails)
+      .map(a => ({ date: a.createdAt, totalScore: a.faqDetails!.totalScore, notes: a.notes }));
+
+    const cdrAssessments = cdr
+      .filter(a => a.cdrDetails)
+      .map(a => {
+        const d = a.cdrDetails!;
+        const sumOfBoxes = d.memory + d.orientation + d.judgmentProblem + d.communityAffairs + d.homeHobbies + d.personalCare;
+        return { date: a.createdAt, globalScore: d.globalScore, sumOfBoxes, notes: a.notes };
+      });
+
+    // Calculate analytics from scores
     const analytics = this.calculateAnalytics(
-      gdsAssessments,
-      npiAssessments,
-      faqAssessments,
-      cdrAssessments
+      gdsAssessments.map(a => a.score),
+      npiAssessments.map(a => a.totalScore),
+      faqAssessments.map(a => a.totalScore),
+      cdrAssessments.map(a => a.globalScore)
     );
 
     return {
@@ -132,23 +175,23 @@ export class PDFService {
    * Calculate analytics for the report
    */
   private calculateAnalytics(
-    gds: GDSAssessment[],
-    npi: NPIAssessment[],
-    faq: FAQAssessment[],
-    cdr: CDRAssessment[]
+    gdsScores: number[],
+    npiScores: number[],
+    faqScores: number[],
+    cdrGlobalScores: number[]
   ) {
     const latestScores = {
-      gds: gds[0]?.totalScore,
-      npi: npi[0]?.totalScore,
-      faq: faq[0]?.totalScore,
-      cdr: cdr[0]?.globalScore,
+      gds: gdsScores[0],
+      npi: npiScores[0],
+      faq: faqScores[0],
+      cdr: cdrGlobalScores[0],
     };
 
     const trends = {
-      gds: this.calculateTrend(gds.map((a) => a.totalScore)),
-      npi: this.calculateTrend(npi.map((a) => a.totalScore)),
-      faq: this.calculateTrend(faq.map((a) => a.totalScore)),
-      cdr: this.calculateTrend(cdr.map((a) => a.globalScore)),
+      gds: this.calculateTrend(gdsScores),
+      npi: this.calculateTrend(npiScores),
+      faq: this.calculateTrend(faqScores),
+      cdr: this.calculateTrend(cdrGlobalScores),
     };
 
     const alerts = [];
@@ -197,7 +240,7 @@ export class PDFService {
   /**
    * Add header to the PDF
    */
-  private addHeader(doc: PDFKit.PDFDocument, patient: Patient) {
+  private addHeader(doc: PDFKit.PDFDocument, patient: ComprehensiveReportData['patient']) {
     doc
       .fontSize(24)
       .fillColor('#1e40af')
@@ -208,7 +251,7 @@ export class PDFService {
       .fontSize(12)
       .fillColor('#666666')
       .text(`Patient: ${patient.firstName} ${patient.lastName}`, { align: 'center' })
-      .text(`MRN: ${patient.medicalRecordNumber}`, { align: 'center' })
+      .text(`MRN: ${patient.medicalRecordNo || 'N/A'}`, { align: 'center' })
       .text(`Report Generated: ${new Date().toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
@@ -230,7 +273,7 @@ export class PDFService {
   /**
    * Add patient demographics section
    */
-  private addPatientDemographics(doc: PDFKit.PDFDocument, patient: Patient) {
+  private addPatientDemographics(doc: PDFKit.PDFDocument, patient: ComprehensiveReportData['patient']) {
     doc
       .fontSize(16)
       .fillColor('#1f2937')
@@ -245,7 +288,7 @@ export class PDFService {
       .text(`Date of Birth: ${new Date(patient.dateOfBirth).toLocaleDateString('en-US')}`, { continued: true })
       .text(`     Age: ${age} years`, { align: 'left' })
       .text(`Gender: ${patient.gender}`, { continued: true })
-      .text(`     Medical Record #: ${patient.medicalRecordNumber}`)
+      .text(`     Medical Record #: ${patient.medicalRecordNo || 'N/A'}`)
       .moveDown(0.5);
 
     if (patient.email) {
@@ -373,7 +416,7 @@ export class PDFService {
   /**
    * Add GDS assessment section
    */
-  private addGDSSection(doc: PDFKit.PDFDocument, assessments: GDSAssessment[]) {
+  private addGDSSection(doc: PDFKit.PDFDocument, assessments: Array<{ date: Date; score: number; notes?: string | null }>) {
     if (assessments.length === 0) return;
 
     this.addPageBreakIfNeeded(doc, 250);
@@ -392,9 +435,9 @@ export class PDFService {
 
     // Assessment history table
     this.drawAssessmentTable(doc, assessments, 'GDS', (assessment) => [
-      new Date(assessment.assessmentDate).toLocaleDateString(),
-      `${assessment.totalScore}/15`,
-      this.getGDSSeverity(assessment.totalScore),
+      new Date(assessment.date).toLocaleDateString(),
+      `${assessment.score}/15`,
+      this.getGDSSeverity(assessment.score),
       assessment.notes || 'N/A',
     ]);
 
@@ -404,7 +447,7 @@ export class PDFService {
   /**
    * Add NPI assessment section
    */
-  private addNPISection(doc: PDFKit.PDFDocument, assessments: NPIAssessment[]) {
+  private addNPISection(doc: PDFKit.PDFDocument, assessments: Array<{ date: Date; totalScore: number; totalDistress: number; notes?: string | null }>) {
     if (assessments.length === 0) return;
 
     this.addPageBreakIfNeeded(doc, 250);
@@ -422,7 +465,7 @@ export class PDFService {
       .moveDown(0.5);
 
     this.drawAssessmentTable(doc, assessments, 'NPI', (assessment) => [
-      new Date(assessment.assessmentDate).toLocaleDateString(),
+      new Date(assessment.date).toLocaleDateString(),
       `${assessment.totalScore}/144`,
       this.getNPISeverity(assessment.totalScore),
       `Distress: ${assessment.totalDistress}/60`,
@@ -434,7 +477,7 @@ export class PDFService {
   /**
    * Add FAQ assessment section
    */
-  private addFAQSection(doc: PDFKit.PDFDocument, assessments: FAQAssessment[]) {
+  private addFAQSection(doc: PDFKit.PDFDocument, assessments: Array<{ date: Date; totalScore: number; notes?: string | null }>) {
     if (assessments.length === 0) return;
 
     this.addPageBreakIfNeeded(doc, 250);
@@ -452,7 +495,7 @@ export class PDFService {
       .moveDown(0.5);
 
     this.drawAssessmentTable(doc, assessments, 'FAQ', (assessment) => [
-      new Date(assessment.assessmentDate).toLocaleDateString(),
+      new Date(assessment.date).toLocaleDateString(),
       `${assessment.totalScore}/30`,
       this.getFAQSeverity(assessment.totalScore),
       assessment.notes || 'N/A',
@@ -464,7 +507,7 @@ export class PDFService {
   /**
    * Add CDR assessment section
    */
-  private addCDRSection(doc: PDFKit.PDFDocument, assessments: CDRAssessment[]) {
+  private addCDRSection(doc: PDFKit.PDFDocument, assessments: Array<{ date: Date; globalScore: number; sumOfBoxes: number; notes?: string | null }>) {
     if (assessments.length === 0) return;
 
     this.addPageBreakIfNeeded(doc, 250);
@@ -482,7 +525,7 @@ export class PDFService {
       .moveDown(0.5);
 
     this.drawAssessmentTable(doc, assessments, 'CDR', (assessment) => [
-      new Date(assessment.assessmentDate).toLocaleDateString(),
+      new Date(assessment.date).toLocaleDateString(),
       `Global: ${assessment.globalScore}`,
       this.getCDRSeverity(assessment.globalScore),
       `Sum of Boxes: ${assessment.sumOfBoxes}/18`,

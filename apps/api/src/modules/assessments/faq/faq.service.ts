@@ -1,16 +1,11 @@
-import { db } from '@repo/db';
-import { 
-  FAQ_ITEMS, 
-  calculateFAQScore, 
-  validateFAQAnswers,
-  type FAQAnswer 
-} from '@repo/types';
-import type { Prisma } from '@repo/db';
+import { PrismaClient } from '@alzheimer/db';
+import { calculateFAQScore, validateFAQScores, FAQ_ITEMS } from '@alzheimer/types';
+import type { FAQItemScore } from '@alzheimer/types';
 
 export interface CreateFAQAssessmentInput {
   patientId: string;
   assessedById: string;
-  answers: FAQAnswer[];
+  answers: number[]; // 10 items, each 0-3
   notes?: string;
 }
 
@@ -69,28 +64,38 @@ export interface ComparisonResult {
   }>;
 }
 
+const prisma = new PrismaClient();
+
 export class FAQService {
   /**
    * Create a new FAQ assessment
    */
   async createAssessment(data: CreateFAQAssessmentInput) {
     // Validate answers
-    const validation = validateFAQAnswers(data.answers);
-    if (!validation.valid) {
-      throw new Error(`Invalid FAQ answers: ${validation.error}`);
+    // Transform numeric answers to FAQItemScore format
+    const items: FAQItemScore[] = data.answers.map((rating, index) => ({
+      itemId: index + 1,
+      rating: rating as any,
+    }));
+
+    // Validate answers
+    const validation = validateFAQScores(items);
+    if (!validation.isValid) {
+      throw new Error(`Invalid FAQ answers: ${validation.errors.join(', ')}`);
     }
 
-    // Calculate total score and impairment level
-    const { totalScore, impairmentLevel } = calculateFAQScore(data.answers);
+    // Calculate total score
+    const { totalScore } = calculateFAQScore(items);
 
     // Create assessment and FAQ assessment in a transaction
-    const result = await db.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Create base assessment
       const assessment = await tx.assessment.create({
         data: {
           type: 'FAQ',
           patientId: data.patientId,
-          assessedById: data.assessedById,
+          createdById: data.assessedById,
+          answers: { items },
           notes: data.notes,
         },
       });
@@ -100,16 +105,6 @@ export class FAQService {
         data: {
           assessmentId: assessment.id,
           totalScore,
-          item1Score: data.answers[0],
-          item2Score: data.answers[1],
-          item3Score: data.answers[2],
-          item4Score: data.answers[3],
-          item5Score: data.answers[4],
-          item6Score: data.answers[5],
-          item7Score: data.answers[6],
-          item8Score: data.answers[7],
-          item9Score: data.answers[8],
-          item10Score: data.answers[9],
         },
       });
 
@@ -120,11 +115,10 @@ export class FAQService {
           entityType: 'ASSESSMENT',
           entityId: assessment.id,
           userId: data.assessedById,
-          metadata: {
+          changes: {
             type: 'FAQ',
             patientId: data.patientId,
             totalScore,
-            impairmentLevel,
           },
         },
       });
@@ -140,7 +134,7 @@ export class FAQService {
    * Get an FAQ assessment by ID
    */
   async getAssessmentById(id: string) {
-    const assessment = await db.assessment.findUnique({
+    const assessment = await prisma.assessment.findUnique({
       where: { id },
       include: {
         patient: {
@@ -149,10 +143,10 @@ export class FAQService {
             firstName: true,
             lastName: true,
             dateOfBirth: true,
-            medicalRecordNumber: true,
+            medicalRecordNo: true,
           },
         },
-        assessedBy: {
+        createdBy: {
           select: {
             id: true,
             firstName: true,
@@ -160,7 +154,7 @@ export class FAQService {
             email: true,
           },
         },
-        faqAssessment: true,
+        faqDetails: true,
       },
     });
 
@@ -180,13 +174,13 @@ export class FAQService {
   ) {
     const { limit = 10, skip = 0, sortOrder = 'desc' } = options;
 
-    const assessments = await db.assessment.findMany({
+    const assessments = await prisma.assessment.findMany({
       where: {
         patientId,
         type: 'FAQ',
       },
       include: {
-        assessedBy: {
+        createdBy: {
           select: {
             id: true,
             firstName: true,
@@ -194,7 +188,7 @@ export class FAQService {
             email: true,
           },
         },
-        faqAssessment: true,
+        faqDetails: true,
       },
       orderBy: {
         createdAt: sortOrder,
@@ -203,7 +197,7 @@ export class FAQService {
       skip,
     });
 
-    const total = await db.assessment.count({
+    const total = await prisma.assessment.count({
       where: {
         patientId,
         type: 'FAQ',
@@ -222,13 +216,13 @@ export class FAQService {
    * Get statistics for a patient's FAQ assessments
    */
   async getPatientStats(patientId: string): Promise<FAQStats> {
-    const assessments = await db.assessment.findMany({
+    const assessments = await prisma.assessment.findMany({
       where: {
         patientId,
         type: 'FAQ',
       },
       include: {
-        faqAssessment: true,
+        faqDetails: true,
       },
       orderBy: {
         createdAt: 'desc',
@@ -243,7 +237,7 @@ export class FAQService {
         latestImpairment: null,
         scoreHistory: [],
         itemStats: FAQ_ITEMS.map((item, index) => ({
-          item: item.description,
+          item: item.text,
           itemNumber: index + 1,
           averageScore: 0,
           impairmentRate: 0,
@@ -252,45 +246,49 @@ export class FAQService {
     }
 
     // Calculate averages
-    const totalScore = assessments.reduce((sum, a) => sum + (a.faqAssessment?.totalScore || 0), 0);
+    const totalScore = assessments.reduce((sum, a) => sum + (a.faqDetails?.totalScore || 0), 0);
     const averageScore = totalScore / assessments.length;
 
     // Get latest score and impairment
     const latestAssessment = assessments[0];
-    const latestScore = latestAssessment.faqAssessment?.totalScore || null;
-    const latestImpairment = latestScore !== null 
-      ? this.getImpairmentLevel(latestScore) 
+    const latestScore = latestAssessment.faqDetails?.totalScore || null;
+    const latestImpairment = latestScore !== null
+      ? this.getImpairmentLevel(latestScore)
       : null;
 
     // Build score history
     const scoreHistory = assessments.map(a => ({
       date: a.createdAt,
-      totalScore: a.faqAssessment?.totalScore || 0,
-      impairment: this.getImpairmentLevel(a.faqAssessment?.totalScore || 0),
+      totalScore: a.faqDetails?.totalScore || 0,
+      impairment: this.getImpairmentLevel(a.faqDetails?.totalScore || 0),
     }));
 
-    // Calculate item statistics
-    const itemStats = FAQ_ITEMS.map((item, index) => {
-      const itemKey = `item${index + 1}Score` as keyof typeof assessments[0]['faqAssessment'];
-      let totalItemScore = 0;
-      let impairmentCount = 0;
+    // Calculate item statistics from serialized answers JSON
+    const itemTotals: number[] = new Array(FAQ_ITEMS.length).fill(0);
+    const itemImpairments: number[] = new Array(FAQ_ITEMS.length).fill(0);
+    const itemCounts: number[] = new Array(FAQ_ITEMS.length).fill(0);
 
-      assessments.forEach(assessment => {
-        const faq = assessment.faqAssessment;
-        if (!faq) return;
+    assessments.forEach((a) => {
+      const items = (a.answers as any)?.items as Array<{ itemId: number; rating: number }> | undefined;
+      if (!items || !Array.isArray(items)) return;
 
-        const score = faq[itemKey] as number;
-        totalItemScore += score;
-        if (score > 0) {
-          impairmentCount++;
+      for (let i = 0; i < FAQ_ITEMS.length; i++) {
+        const record = items.find((it) => it.itemId === i + 1);
+        if (record && typeof record.rating === 'number') {
+          itemTotals[i] += record.rating;
+          itemCounts[i] += 1;
+          if (record.rating > 0) itemImpairments[i] += 1;
         }
-      });
+      }
+    });
 
+    const itemStats = FAQ_ITEMS.map((item, index) => {
+      const count = itemCounts[index] || 0;
       return {
-        item: item.description,
+        item: item.text,
         itemNumber: index + 1,
-        averageScore: totalItemScore / assessments.length,
-        impairmentRate: (impairmentCount / assessments.length) * 100,
+        averageScore: count > 0 ? itemTotals[index] / count : 0,
+        impairmentRate: count > 0 ? (itemImpairments[index] / count) * 100 : 0,
       };
     });
 
@@ -309,20 +307,20 @@ export class FAQService {
    */
   async getItemBreakdown(assessmentId: string): Promise<ItemBreakdown[]> {
     const assessment = await this.getAssessmentById(assessmentId);
-    const faq = assessment.faqAssessment;
+    const faq = assessment.faqDetails;
 
     if (!faq) {
       throw new Error('FAQ assessment data not found');
     }
 
-    return FAQ_ITEMS.map((item, index) => {
-      const itemKey = `item${index + 1}Score` as keyof typeof faq;
-      const score = faq[itemKey] as number;
+    const items = (assessment.answers as any)?.items as Array<{ itemId: number; rating: number }> | undefined;
 
+    return FAQ_ITEMS.map((item, index) => {
+      const score = items?.find((it) => it.itemId === index + 1)?.rating ?? 0;
       return {
-        item: item.description,
+        item: item.text,
         itemNumber: index + 1,
-        description: item.examples || '',
+        description: '',
         score,
         scoreLabel: this.getScoreLabel(score),
       };
@@ -347,8 +345,8 @@ export class FAQService {
 
     const scoreDifference = faq2.totalScore - faq1.totalScore;
     const improvement = scoreDifference < 0; // Lower score is improvement
-    const percentChange = faq1.totalScore > 0 
-      ? (scoreDifference / faq1.totalScore) * 100 
+    const percentChange = faq1.totalScore > 0
+      ? (scoreDifference / faq1.totalScore) * 100
       : 0;
 
     // Calculate item-level changes
@@ -390,7 +388,7 @@ export class FAQService {
   async deleteAssessment(id: string, deletedById: string) {
     const assessment = await this.getAssessmentById(id);
 
-    await db.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       // Delete FAQ assessment (cascades from base assessment)
       await tx.assessment.delete({
         where: { id },
@@ -403,10 +401,10 @@ export class FAQService {
           entityType: 'ASSESSMENT',
           entityId: id,
           userId: deletedById,
-          metadata: {
+          changes: {
             type: 'FAQ',
             patientId: assessment.patientId,
-            totalScore: assessment.faqAssessment?.totalScore,
+            totalScore: assessment.faqDetails?.totalScore,
           },
         },
       });

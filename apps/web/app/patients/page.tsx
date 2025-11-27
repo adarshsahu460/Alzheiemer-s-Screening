@@ -162,7 +162,7 @@ function PatientListContent() {
                           patient.gender.slice(1).toLowerCase()}
                       </TableCell>
                       <TableCell>
-                        {patient.medicalRecordNumber || 'N/A'}
+                        {patient.medicalRecordNo || 'N/A'}
                       </TableCell>
                       <TableCell>
                         {patient._count?.assessments || 0}

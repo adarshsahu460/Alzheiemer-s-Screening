@@ -6,7 +6,7 @@ import { requireRole } from '../../../middleware/rbac';
 
 // Validation schemas
 const createFAQSchema = z.object({
-  patientId: z.string().uuid(),
+  patientId: z.string().cuid('Invalid patient ID'),
   answers: z.array(z.number().min(0).max(3)).length(10), // Exactly 10 items, each 0-3
   notes: z.string().max(2000).optional(),
 });
@@ -18,11 +18,11 @@ const getPatientAssessmentsSchema = z.object({
 });
 
 const uuidParamSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().cuid('Invalid assessment ID'),
 });
 
 const patientIdParamSchema = z.object({
-  patientId: z.string().uuid(),
+  patientId: z.string().cuid('Invalid patient ID'),
 });
 
 const compareParamsSchema = z.object({

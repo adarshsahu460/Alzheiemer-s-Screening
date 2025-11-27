@@ -15,7 +15,7 @@ export interface GDSAssessment {
     firstName: string;
     lastName: string;
     dateOfBirth: Date;
-    medicalRecordNumber?: string | null;
+    medicalRecordNo?: string | null;
   };
   assessedBy?: {
     id: string;
@@ -23,7 +23,7 @@ export interface GDSAssessment {
     lastName: string;
     email: string;
   };
-  gdsAssessment?: {
+  gdsDetails?: {
     id: string;
     assessmentId: string;
     score: number;

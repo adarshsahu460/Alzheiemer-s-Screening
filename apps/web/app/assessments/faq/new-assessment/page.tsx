@@ -1,12 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@repo/ui/components/card';
 import { Button } from '@repo/ui/components/button';
 import { Label } from '@repo/ui/components/label';
-import { Textarea } from '@repo/ui/components/textarea';
 import { FAQ_ITEMS, type FAQAnswer } from '@repo/types';
 import { createFAQAssessment } from '@/lib/faq-api';
 import { getPatient } from '@/lib/patient-api';
@@ -29,9 +28,9 @@ export default function NewFAQAssessmentPage() {
 }
 
 function NewFAQAssessmentContent() {
-  const params = useParams();
   const router = useRouter();
-  const patientId = params.patientId as string;
+  const searchParams = useSearchParams();
+  const patientId = (searchParams.get('patientId') || '').trim();
 
   const [answers, setAnswers] = useState<FAQAnswer[]>(new Array(10).fill(null));
   const [notes, setNotes] = useState('');
@@ -40,6 +39,7 @@ function NewFAQAssessmentContent() {
   const { data: patient, isLoading: isLoadingPatient } = useQuery({
     queryKey: ['patient', patientId],
     queryFn: () => getPatient(patientId),
+    enabled: !!patientId,
   });
 
   // Create assessment mutation
@@ -78,6 +78,14 @@ function NewFAQAssessmentContent() {
     );
   }
 
+  if (!patientId) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center text-red-600">Missing patientId in URL. Navigate from patient page.</div>
+      </div>
+    );
+  }
+
   if (!patient) {
     return (
       <div className="container mx-auto p-6">
@@ -92,7 +100,7 @@ function NewFAQAssessmentContent() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2">New FAQ Assessment</h1>
         <p className="text-gray-600">
-          Functional Activities Questionnaire for {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNumber})
+          Functional Activities Questionnaire for {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNo || 'N/A'})
         </p>
       </div>
 
@@ -156,13 +164,8 @@ function NewFAQAssessmentContent() {
             <Card key={index} id={`item-${index}`} className={currentAnswer !== null ? 'border-green-200' : ''}>
               <CardHeader>
                 <CardTitle className="text-lg">
-                  {index + 1}. {item.description}
+                  {index + 1}. {item.text}
                 </CardTitle>
-                {item.examples && (
-                  <CardDescription className="text-sm italic">
-                    Examples: {item.examples}
-                  </CardDescription>
-                )}
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -220,7 +223,8 @@ function NewFAQAssessmentContent() {
           <CardTitle>Additional Notes (Optional)</CardTitle>
         </CardHeader>
         <CardContent>
-          <Textarea
+          <textarea
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Enter any additional observations or context..."

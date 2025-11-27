@@ -5,10 +5,10 @@ import {
   createPatientSchema,
   updatePatientSchema,
   patientQuerySchema,
-  type CreatePatientInput,
-  type UpdatePatientInput,
-  type PatientQuery,
-} from '@repo/types';
+  CreatePatientInput,
+  UpdatePatientInput,
+  PatientQuery,
+} from '@alzheimer/types';
 import { ApiError } from '../../utils/error-handler';
 
 /**

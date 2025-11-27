@@ -1,12 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@repo/ui/components/card';
 import { Button } from '@repo/ui/components/button';
 import { Label } from '@repo/ui/components/label';
-import { Textarea } from '@repo/ui/components/textarea';
+// Note: Using native textarea; UI package has no Textarea component
 import { createCDRAssessment, getCDRDomainNames } from '@/lib/cdr-api';
 import { getPatient } from '@/lib/patient-api';
 import { ArrowLeft, ArrowRight, Check, AlertCircle } from 'lucide-react';
@@ -93,9 +93,9 @@ const DOMAIN_KEYS = [
 type DomainKey = typeof DOMAIN_KEYS[number];
 
 export default function NewCDRAssessmentPage() {
-  const params = useParams();
   const router = useRouter();
-  const patientId = params.patientId as string;
+  const searchParams = useSearchParams();
+  const patientId = (searchParams.get('patientId') || '').trim();
 
   const [currentStep, setCurrentStep] = useState(0);
   const [domainScores, setDomainScores] = useState<Record<DomainKey, number | null>>({
@@ -111,6 +111,7 @@ export default function NewCDRAssessmentPage() {
   const { data: patient, isLoading: isLoadingPatient } = useQuery({
     queryKey: ['patient', patientId],
     queryFn: () => getPatient(patientId),
+    enabled: !!patientId,
   });
 
   const createMutation = useMutation({
@@ -172,6 +173,14 @@ export default function NewCDRAssessmentPage() {
     );
   }
 
+  if (!patientId) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center text-red-600">Missing patientId in URL. Navigate from patient page.</div>
+      </div>
+    );
+  }
+
   if (!patient) {
     return (
       <div className="container mx-auto p-6">
@@ -188,7 +197,7 @@ export default function NewCDRAssessmentPage() {
           <div>
             <h1 className="text-3xl font-bold mb-2">New CDR Assessment</h1>
             <p className="text-gray-600">
-              {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNumber})
+              {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNo || 'N/A'})
             </p>
           </div>
           <Button
@@ -344,13 +353,14 @@ export default function NewCDRAssessmentPage() {
             {/* Notes */}
             <div className="space-y-2">
               <Label htmlFor="notes">Clinical Notes (Optional)</Label>
-              <Textarea
+              <textarea
                 id="notes"
+                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Add any relevant observations, context, or comments about this assessment..."
                 rows={4}
-                className="w-full"
+                maxLength={2000}
               />
             </div>
 

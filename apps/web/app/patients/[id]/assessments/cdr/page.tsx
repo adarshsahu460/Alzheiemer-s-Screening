@@ -9,6 +9,7 @@ import { Badge } from '@repo/ui/components/badge';
 import { getPatientCDRAssessments, getPatientCDRStats, getCDRStageLabel, getGlobalCDRColor } from '@/lib/cdr-api';
 import { getPatient } from '@/lib/patient-api';
 import { ArrowLeft, Plus, TrendingUp, TrendingDown, Minus, Activity } from 'lucide-react';
+import { useMemo } from 'react';
 
 export default function CDRHistoryPage() {
   const params = useParams();
@@ -49,6 +50,49 @@ export default function CDRHistoryPage() {
   }
 
   const assessments = assessmentsData?.assessments || [];
+
+  // Fallback compute for domain stats when API returns zeros/empty
+  const computedDomainStats = useMemo(() => {
+    if (!assessments.length) return [] as { domain: string; averageScore: number; impairmentRate: number }[];
+
+    const domains = [
+      'Memory',
+      'Orientation',
+      'Judgment & Problem Solving',
+      'Community Affairs',
+      'Home & Hobbies',
+      'Personal Care',
+    ];
+
+    const count = assessments.filter(a => a.cdrDetails).length || 0;
+    if (!count) return [] as { domain: string; averageScore: number; impairmentRate: number }[];
+
+    const totals = [0, 0, 0, 0, 0, 0];
+    const impairments = [0, 0, 0, 0, 0, 0];
+
+    assessments.forEach(a => {
+      const d = a.cdrDetails;
+      if (!d) return;
+      const values = [d.memory, d.orientation, d.judgmentProblem, d.communityAffairs, d.homeHobbies, d.personalCare];
+      values.forEach((score, idx) => {
+        totals[idx] += score;
+        if (score > 0) impairments[idx] += 1;
+      });
+    });
+
+    return domains.map((domain, idx) => ({
+      domain,
+      averageScore: totals[idx] / count,
+      impairmentRate: (impairments[idx] / count) * 100,
+    }));
+  }, [assessments]);
+
+  const domainStatsToShow = useMemo(() => {
+    const apiStats = stats?.domainStats || [];
+    // If API has non-zero values, prefer those; otherwise, use computed fallback
+    const hasRealApiData = apiStats.some(s => s.averageScore > 0 || s.impairmentRate > 0);
+    return hasRealApiData ? apiStats : computedDomainStats;
+  }, [stats, computedDomainStats]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -106,11 +150,11 @@ export default function CDRHistoryPage() {
         <div>
           <h1 className="text-3xl font-bold mb-2">CDR Assessment History</h1>
           <p className="text-gray-600">
-            {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNumber})
+            {patient.firstName} {patient.lastName} (MRN: {patient.medicalRecordNo || 'N/A'})
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => router.push(`/assessments/cdr/${patientId}/new`)}>
+          <Button onClick={() => router.push(`/assessments/cdr/new-assessment?patientId=${patientId}`)}>
             <Plus className="h-4 w-4 mr-2" />
             New CDR Assessment
           </Button>
@@ -218,7 +262,7 @@ export default function CDRHistoryPage() {
       )}
 
       {/* Domain Statistics */}
-      {stats && stats.domainStats.length > 0 && (
+      {domainStatsToShow.length > 0 && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Domain Analysis</CardTitle>
@@ -233,7 +277,7 @@ export default function CDRHistoryPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {stats.domainStats.map((domainStat, index) => (
+                {domainStatsToShow.map((domainStat, index) => (
                   <TableRow key={index}>
                     <TableCell className="font-medium">{domainStat.domain}</TableCell>
                     <TableCell className="text-center">
@@ -275,7 +319,7 @@ export default function CDRHistoryPage() {
               <p className="text-gray-600 mb-6">
                 Get started by creating the first CDR assessment for this patient.
               </p>
-              <Button onClick={() => router.push(`/assessments/cdr/${patientId}/new`)}>
+              <Button onClick={() => router.push(`/assessments/cdr/new-assessment?patientId=${patientId}`)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create First Assessment
               </Button>
@@ -298,20 +342,20 @@ export default function CDRHistoryPage() {
                     <TableCell>{formatDate(assessment.createdAt)}</TableCell>
                     <TableCell className="text-center">
                       <span className="font-bold text-blue-600 text-lg">
-                        {assessment.cdrAssessment.globalCDR}
+                        {assessment.cdrDetails.globalScore}
                       </span>
                     </TableCell>
                     <TableCell className="text-center">
                       <span className="font-medium text-purple-600">
-                        {assessment.cdrAssessment.sumOfBoxes}
+                        {assessment.cdrDetails.memory + assessment.cdrDetails.orientation + assessment.cdrDetails.judgmentProblem + assessment.cdrDetails.communityAffairs + assessment.cdrDetails.homeHobbies + assessment.cdrDetails.personalCare}
                       </span>
                       <span className="text-gray-500 text-sm"> / 18</span>
                     </TableCell>
                     <TableCell className="text-center">
-                      {getCDRBadge(assessment.cdrAssessment.globalCDR)}
+                      {getCDRBadge(assessment.cdrDetails.globalScore)}
                     </TableCell>
                     <TableCell>
-                      {assessment.assessedBy.firstName} {assessment.assessedBy.lastName}
+                      {assessment.createdBy.firstName} {assessment.createdBy.lastName}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button

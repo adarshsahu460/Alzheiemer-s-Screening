@@ -69,7 +69,9 @@ export function calculateGDSScore(answers: GDSAnswer[]): GDSResult {
   // Calculate score
   answers.forEach((answer) => {
     const question = GDS_QUESTIONS.find((q) => q.id === answer.questionId);
-    if (!question) return;
+    if (!question) {
+      return;
+    }
 
     if (question.reverseScore) {
       // For reverse-scored questions: No = 1 point

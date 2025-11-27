@@ -10,19 +10,20 @@ export interface Patient {
   email?: string | null;
   phone?: string | null;
   address?: string | null;
-  medicalRecordNumber?: string | null;
+  medicalRecordNo?: string | null;
   caregiverName?: string | null;
   caregiverRelationship?: string | null;
   caregiverPhone?: string | null;
   caregiverEmail?: string | null;
   notes?: string | null;
-  createdById: string;
+  caregiverId: string;
   createdAt: Date;
   updatedAt: Date;
-  createdBy?: {
+  caregiver?: {
     id: string;
     firstName: string;
     lastName: string;
+    email?: string;
   };
   _count?: {
     assessments: number;

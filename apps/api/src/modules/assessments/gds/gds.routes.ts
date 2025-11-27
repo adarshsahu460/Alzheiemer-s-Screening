@@ -3,7 +3,7 @@ import { authenticate, requireRole } from '../../../middleware/auth.middleware';
 import { gdsService } from './gds.service';
 import { ApiError } from '../../../utils/error-handler';
 import { z } from 'zod';
-import type { GDSAnswers } from '@repo/types';
+import type { GDSAnswers } from '@alzheimer/types';
 
 // Validation schemas
 const createGDSSchema = z.object({
@@ -70,7 +70,7 @@ export async function gdsRoutes(fastify: FastifyInstance) {
         console.error('Error name:', error.name);
         console.error('Error message:', error.message);
         console.error('Error constructor:', error.constructor.name);
-        
+
         if (error.constructor.name === 'ZodError' || error.name === 'ZodError') {
           console.error('Zod Validation Error:', JSON.stringify(error.errors, null, 2));
           throw new ApiError(400, `Validation failed: ${JSON.stringify(error.errors)}`, error.errors);
@@ -148,8 +148,10 @@ export async function gdsRoutes(fastify: FastifyInstance) {
 
         return reply.send({
           success: true,
-          data: result.data,
-          total: result.total,
+          data: {
+            assessments: result.data,
+            total: result.total,
+          },
           hasMore: result.hasMore,
         });
       } catch (error: any) {

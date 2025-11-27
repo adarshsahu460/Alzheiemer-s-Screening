@@ -1,12 +1,11 @@
-import axios from 'axios';
-
+import { apiClient } from './api-client';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 // CDR domain scores type
 export interface CDRDomainScores {
   memory: number;
   orientation: number;
-  judgmentProblemSolving: number;
+  judgmentProblem: number;
   communityAffairs: number;
   homeHobbies: number;
   personalCare: number;
@@ -18,13 +17,12 @@ export interface CDRAssessment {
   assessmentId: string;
   memory: number;
   orientation: number;
-  judgmentProblemSolving: number;
+  judgmentProblem: number;
   communityAffairs: number;
   homeHobbies: number;
   personalCare: number;
-  globalCDR: number;
-  sumOfBoxes: number;
-  notes?: string;
+  globalScore: number;
+  stage: string;
 }
 
 export interface CDRAssessmentWithRelations {
@@ -37,13 +35,14 @@ export interface CDRAssessmentWithRelations {
     id: string;
     firstName: string;
     lastName: string;
-    medicalRecordNo: string;
+    medicalRecordNo: string | null;
   };
   createdBy: {
     id: string;
     firstName: string;
     lastName: string;
   };
+  notes?: string | null;
 }
 
 export interface DomainScore {
@@ -112,9 +111,7 @@ export async function createCDRAssessment(data: {
   domainScores: number[]; // Array of 6 scores (0, 0.5, 1, 2, or 3)
   notes?: string;
 }): Promise<CDRAssessmentWithRelations> {
-  const response = await axios.post(`${API_URL}/api/assessments/cdr`, data, {
-    withCredentials: true,
-  });
+  const response = await apiClient.post(`/api/assessments/cdr`, data);
   return response.data;
 }
 
@@ -124,12 +121,7 @@ export async function createCDRAssessment(data: {
 export async function getCDRAssessment(
   assessmentId: string
 ): Promise<CDRAssessmentWithRelations> {
-  const response = await axios.get(
-    `${API_URL}/api/assessments/cdr/${assessmentId}`,
-    {
-      withCredentials: true,
-    }
-  );
+  const response = await apiClient.get(`/api/assessments/cdr/${assessmentId}`);
   return response.data;
 }
 
@@ -143,13 +135,7 @@ export async function getPatientCDRAssessments(
   const params = new URLSearchParams();
   if (options?.page) params.append('page', options.page.toString());
   if (options?.limit) params.append('limit', options.limit.toString());
-
-  const response = await axios.get(
-    `${API_URL}/api/assessments/cdr/patient/${patientId}?${params.toString()}`,
-    {
-      withCredentials: true,
-    }
-  );
+  const response = await apiClient.get(`/api/assessments/cdr/patient/${patientId}`, { params });
   return response.data;
 }
 
@@ -159,12 +145,7 @@ export async function getPatientCDRAssessments(
 export async function getPatientCDRStats(
   patientId: string
 ): Promise<CDRStats> {
-  const response = await axios.get(
-    `${API_URL}/api/assessments/cdr/patient/${patientId}/stats`,
-    {
-      withCredentials: true,
-    }
-  );
+  const response = await apiClient.get(`/api/assessments/cdr/patient/${patientId}/stats`);
   return response.data;
 }
 
@@ -174,12 +155,7 @@ export async function getPatientCDRStats(
 export async function getPatientCDRDistribution(
   patientId: string
 ): Promise<CDRDistribution> {
-  const response = await axios.get(
-    `${API_URL}/api/assessments/cdr/patient/${patientId}/distribution`,
-    {
-      withCredentials: true,
-    }
-  );
+  const response = await apiClient.get(`/api/assessments/cdr/patient/${patientId}/distribution`);
   return response.data;
 }
 
@@ -190,12 +166,7 @@ export async function compareCDRAssessments(
   assessmentId1: string,
   assessmentId2: string
 ): Promise<ComparisonResult> {
-  const response = await axios.get(
-    `${API_URL}/api/assessments/cdr/compare/${assessmentId1}/${assessmentId2}`,
-    {
-      withCredentials: true,
-    }
-  );
+  const response = await apiClient.get(`/api/assessments/cdr/compare/${assessmentId1}/${assessmentId2}`);
   return response.data;
 }
 

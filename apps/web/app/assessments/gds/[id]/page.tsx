@@ -65,7 +65,7 @@ function GDSResultsContent({ params }: { params: { id: string } }) {
   };
 
   const getSeverityDescription = (severity: string) => {
-    switch (severity) {
+    switch (severity.toUpperCase()) {
       case 'NORMAL':
         return 'No significant depressive symptoms detected';
       case 'MILD':
@@ -95,8 +95,9 @@ function GDSResultsContent({ params }: { params: { id: string } }) {
     );
   }
 
-  const score = assessment.gdsAssessment?.score || 0;
-  const severity = assessment.gdsAssessment?.severity || 'NORMAL';
+  const score = assessment.gdsDetails?.score || 0;
+  const severityRaw = assessment.gdsDetails?.severity || 'NORMAL';
+  const severity = typeof severityRaw === 'string' ? severityRaw.toUpperCase() : 'NORMAL';
 
   return (
     <div className="container mx-auto py-8">
@@ -172,7 +173,7 @@ function GDSResultsContent({ params }: { params: { id: string } }) {
                 <p className="text-sm font-medium text-muted-foreground">
                   Medical Record #
                 </p>
-                <p>{assessment.patient.medicalRecordNumber || 'N/A'}</p>
+                <p>{assessment.patient.medicalRecordNo || 'N/A'}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
